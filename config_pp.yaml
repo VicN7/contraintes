@@ -2,7 +2,7 @@ model_name: "dimenet++"
 
 emb_size: 128
 out_emb_size: 256
-int_emb_size: 64
+int_emb_size: 32
 basis_emb_size: 8
 num_blocks: 4
 
@@ -13,6 +13,7 @@ output_init: 'GlorotOrthogonal'  # 'zeros' for mu, homo, lumo, and zpve; 'Glorot
 extensive: True
 cutoff: 5.0
 envelope_exponent: 5
+dropout_rate: 0.3
 
 num_before_skip: 1
 num_after_skip: 2
@@ -24,17 +25,17 @@ data_seed: 42
 #dataset: "data/qm9_eV.npz"
 logdir: "../checkpoints"
 
-num_steps: 50000
+num_steps: 30000
 ema_decay: 0.999
 
 learning_rate: 0.001
-warmup_steps: 200
+warmup_steps: 100
 decay_rate: 0.01
-decay_steps: 50000
+decay_steps: 30000
 
-batch_size: 16
+batch_size: 32
 evaluation_interval: 150
 save_interval: 150
 restart: None
-comment: "ppPHYv2"
+comment: "ppdeltav5"
 #targets: ['U0']  # ['mu', 'alpha', 'homo', 'lumo', 'gap', 'r2', 'zpve', 'U0', 'U', 'H', 'G', 'Cv']

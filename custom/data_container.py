@@ -4,6 +4,7 @@
 
 import os
 import csv
+from custom.target_scaling import LREnergyScaler
 
 # Periodic-table mapping from element symbol to atomic number (Z).
 # Extend as needed for your dataset.
@@ -12,6 +13,7 @@ ELEMENT_TO_Z = {
     'N': 7,  'O': 8,    'Na': 11, 
     'S': 16, 'Cl':17
 }
+ELEMENT_LIST = [1, 2, 6, 7, 8, 11, 16, 17]
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +87,48 @@ class DataContainer:
         else:
             dataset_name = "test"
 
+        ids_train, N_train, Z_train, R_train = DataContainer.parse_dataset(data_root, 'train')
+        energies_csv = os.path.join(data_root, 'energies/train.csv')
+        energy_by_id = {}  # mol_id (int) -> {col: float}
+        with open(energies_csv, newline='') as energy_file:
+            reader = csv.DictReader(energy_file)
+            for row in reader:
+                mol_id = int(row['id'])
+                energy_by_id[mol_id] = row["energy"]
+        
+            train_targets = np.array([energy_by_id[id] for id in ids_train], dtype=np.float32)
+        self.scaler = LREnergyScaler(ELEMENT_LIST)
+        self.scaler.fit(Z_train, N_train, train_targets)
+        
+        if train:
+            self.id = ids_train
+            self.Z = Z_train
+            self.N = N_train
+            self.R = R_train
+            # load training target
+            energies_csv = os.path.join(data_root, 'energies/train.csv')
+            energy_by_id = {}  # mol_id (int) -> {col: float}
+            with open(energies_csv, newline='') as energy_file:
+                reader = csv.DictReader(energy_file)
+                for row in reader:
+                    mol_id = int(row['id'])
+                    energy_by_id[mol_id] = row["energy"]
+        
+            self.targets = train_targets
+        else:
+            self.id, self.N, self.Z, self.R = DataContainer.parse_dataset(data_root, "test")
+            self.targets = np.array([0 for _ in self.id], dtype=np.float32)
+        
+        self.cutoff = cutoff
+        self.N_cumsum = np.concatenate([[0], np.cumsum(self.N)])
+        assert self.R is not None
 
+        # Scale the targets
+        self.targets = self.scaler.transform(self.N, self.Z, self.targets)
+        # We scale back in trainer when we do inference.
+
+    @staticmethod
+    def parse_dataset(data_root, dataset_name):
         ids_list, N_list, Z_list, R_list = [], [], [], []
 
         split_dir = os.path.join(os.path.join(data_root, 'atoms'), dataset_name)
@@ -102,29 +145,13 @@ class DataContainer:
             N_list.append(n)
             Z_list.append(Z)
             R_list.append(R)
-        self.id = np.array(ids_list, dtype=np.int32)           
-        self.N = np.array(N_list,   dtype=np.int32)           
-        self.Z = np.concatenate(Z_list).astype(np.int32)      
-        self.R = np.concatenate(R_list).astype(np.float32) 
-        print(self.Z.shape)
-        
-        if train:
-            # load training target
-            energies_csv = os.path.join(data_root, 'energies/train.csv')
-            energy_by_id = {}  # mol_id (int) -> {col: float}
-            with open(energies_csv, newline='') as energy_file:
-                reader = csv.DictReader(energy_file)
-                for row in reader:
-                    mol_id = int(row['id'])
-                    energy_by_id[mol_id] = row["energy"]
-        
-            self.targets = np.array([energy_by_id[id] for id in self.id], dtype=np.float32)
-        else:
-            self.targets = np.array([0 for _ in self.id], dtype=np.float32)
-        
-        self.cutoff = cutoff
-        self.N_cumsum = np.concatenate([[0], np.cumsum(self.N)])
-        assert self.R is not None
+        ids = np.array(ids_list, dtype=np.int32)           
+        N = np.array(N_list,   dtype=np.int32)           
+        Z = np.concatenate(Z_list).astype(np.int32)      
+        R = np.concatenate(R_list).astype(np.float32)
+        return ids, N, Z, R
+
+
     # ==============================================
     # Code from DimeNet
     def _bmat_fast(self, mats):

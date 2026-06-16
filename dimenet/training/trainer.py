@@ -129,15 +129,27 @@ class Trainer:
 
         return loss
 
+    # ================== 
+    # Prediction with unscaling
     @tf.function
-    def predict_on_batch(self, dataset_iter, metrics):
+    def _forward(self, dataset_iter):
         inputs, targets = next(dataset_iter)
         preds = self.model(inputs, training=False)
+        return inputs, targets, preds
 
-        mae = tf.reduce_mean(tf.abs(targets - preds), axis=0)
+    def predict_on_batch(self, dataset_iter, metrics, scaler):
+        inputs, targets, preds = self._forward(dataset_iter)
+
+        N = inputs["N"].numpy()
+        Z = inputs["Z"].numpy()
+        unscaled_preds = scaler.inverse_transform(N, Z, preds)
+
+        mae = tf.reduce_mean(tf.abs(targets - unscaled_preds), axis=0)
         mean_mae = tf.reduce_mean(mae)
         loss = mean_mae
+
         nsamples = tf.shape(preds)[0]
         metrics.update_state(loss, mean_mae, mae, nsamples)
 
-        return preds, inputs["id"]
+        return unscaled_preds, inputs["id"]
+    # ==================

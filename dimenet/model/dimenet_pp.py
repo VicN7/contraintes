@@ -57,11 +57,12 @@ class DimeNetPP(tf.keras.Model):
             cutoff=5.0, envelope_exponent=5, num_before_skip=1,
             num_after_skip=2, num_dense_output=3, num_targets=12,
             activation=swish, extensive=True, output_init='zeros',
-            name='dimenet', **kwargs):
+            dropout_rate=0.3, name='dimenet', **kwargs):
         super().__init__(name=name, **kwargs)
 
         self.num_blocks = num_blocks
         self.extensive = extensive
+        self.dropout = tf.keras.layers.Dropout(dropout_rate)
 
         # Cosine basis function expansion layer
         self.rbf_layer = BesselBasisLayer(
@@ -106,7 +107,8 @@ class DimeNetPP(tf.keras.Model):
         angle = tf.math.atan2(y, x)
         return angle
 
-    def call(self, inputs):
+    def call(self, inputs, training=False):
+        print(training)
         Z, R                         = inputs['Z'], inputs['R']
         batch_seg                    = inputs['batch_seg']
         idnb_i, idnb_j               = inputs['idnb_i'], inputs['idnb_j']
@@ -125,11 +127,19 @@ class DimeNetPP(tf.keras.Model):
 
         # Embedding block
         x = self.emb_block([Z, rbf, idnb_i, idnb_j])
+        # ==========================
+        # Add dropout
+        x = self.dropout(x, training=training)
+        # ==========================
         P = self.output_blocks[0]([x, rbf, idnb_i, n_atoms])
 
         # Interaction blocks
         for i in range(self.num_blocks):
             x = self.int_blocks[i]([x, rbf, sbf, id_expand_kj, id_reduce_ji])
+            # ==========================
+            # Add dropout
+            x = self.dropout(x, training=training)
+            # ==========================
             P += self.output_blocks[i+1]([x, rbf, idnb_i, n_atoms])
 
 
