@@ -13,29 +13,31 @@ output_init: 'GlorotOrthogonal'  # 'zeros' for mu, homo, lumo, and zpve; 'Glorot
 extensive: True
 cutoff: 5.0
 envelope_exponent: 5
-dropout_rate: 0.3
+dropout_rate: 0.0
 
 num_before_skip: 1
 num_after_skip: 2
 num_dense_output: 3
 
-num_train: 2310
-#num_valid: 10000
+num_samples: 3306
+val_size: 0.1
 data_seed: 42
 #dataset: "data/qm9_eV.npz"
 logdir: "../checkpoints"
 
-num_steps: 30000
+epochs: 1000
 ema_decay: 0.999
 
-learning_rate: 0.001
-warmup_steps: 100
+learning_rate: 0.003
+warmup_prop: 0.03
 decay_rate: 0.01
-decay_steps: 30000
+decay_prop: 1.25
 
+target_scaling: True
+early_stop: True # False to train on the whole dataset
 batch_size: 32
-evaluation_interval: 150
-save_interval: 150
+evaluation_interval: 300
+save_interval: 300
 restart: None
-comment: "ppdeltav5"
+comment: "full_train_multi_class_split"
 #targets: ['U0']  # ['mu', 'alpha', 'homo', 'lumo', 'gap', 'r2', 'zpve', 'U0', 'U', 'H', 'G', 'Cv']

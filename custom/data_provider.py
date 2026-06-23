@@ -6,7 +6,7 @@ from .data_container import index_keys
  
 class DataProvider:
     def __init__(self, data_container, ntrain, train=True, batch_size=1,
-                 seed=None, randomized=False):
+                 seed=None):
         
         self.data_container = data_container
         self._ndata = len(data_container)
@@ -14,32 +14,34 @@ class DataProvider:
         # ======================================================
         # Splitting adapted to our dataset
         if train:
-            self.nsamples = {'train': ntrain, 'val': self._ndata - ntrain, 'test': 0}
+            # Optionally limit training set to ntrain samples (subset of train_idx)
+            full_train_idx = self.data_container.train_idx
+            if ntrain is not None and ntrain < len(full_train_idx):
+                train_idx = full_train_idx[:ntrain]
+            else:
+                train_idx = full_train_idx
+            self.nsamples = {'train': len(train_idx), 'val': len(self.data_container.val_idx),
+                              'test': 0}
         else:
             self.nsamples = {'train': 0, 'val': 0, 'test': self._ndata}
         # ==========================================
 
         self.batch_size = batch_size
 
-        # Random state parameter, such that random operations are reproducible if wanted
-        self._random_state = np.random.RandomState(seed=seed)
-
-        all_idx = np.arange(len(self.data_container))
-        if randomized:
-            # Shuffle indices
-            all_idx = self._random_state.permutation(all_idx)
+        self._random_state = self.data_container._random_state
 
         # Store indices of training, validation and test data
         # ======================================================
         # Splitting adapted to our dataset
+
         if train:
-            self.idx = {'train': all_idx[0:ntrain],
-                        'val': all_idx[ntrain:],
+            self.idx = {'train': train_idx,
+                        'val': self.data_container.val_idx,
                         'test': None}
         else:
             self.idx = {'train': None,
                         'val': None,
-                        'test': all_idx}
+                        'test': np.arange(self._ndata)}
         # ==========================================
 
         # Index for retrieving batches

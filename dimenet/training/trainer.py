@@ -1,12 +1,12 @@
 import tensorflow as tf
 import tensorflow_addons as tfa
 from .schedules import LinearWarmupExponentialDecay
+from custom.data_container import get_atom_count
 
 
-
-class WarmupCosineDecayRestarts(tf.keras.optimizers.schedules.LearningRateSchedule):
-    """Custom scheduler : Linear warmup, then cosine decay with restarts."""
-
+"""Custom scheduler : Linear warmup, then cosine decay with restarts."""
+"""class WarmupCosineDecayRestarts(tf.keras.optimizers.schedules.LearningRateSchedule):
+    
     def __init__(
         self,
         initial_learning_rate: float,
@@ -44,7 +44,7 @@ class WarmupCosineDecayRestarts(tf.keras.optimizers.schedules.LearningRateSchedu
     def get_config(self):
         config = self._cosine.get_config()
         config.update({"warmup_steps": self.warmup_steps})
-        return config
+        return config"""
 
 
 
@@ -57,12 +57,18 @@ class Trainer:
         self.ema_decay = ema_decay
         self.max_grad_norm = max_grad_norm
 
+        if warmup_steps is not None:
+            self.learning_rate = LinearWarmupExponentialDecay(
+                learning_rate, warmup_steps, decay_steps, decay_rate)
+        else:
+            self.learning_rate = tf.optimizers.schedules.ExponentialDecay(
+                learning_rate, decay_steps, decay_rate)
         #===================================================================================
         # Changed scheduling for more explorations
-        if warmup_steps is not None:
+        """if warmup_steps is not None:
             self.learning_rate = WarmupCosineDecayRestarts(learning_rate, decay_steps, warmup_steps, alpha=decay_rate)
         else:
-            raise ValueError()
+            raise ValueError()""" # doesn't work well
 
         # Changed Adam to AdamW
         #opt = tfa.optimizers.AdamW(learning_rate=self.learning_rate, amsgrad=True, weight_decay=1e-5)
@@ -142,7 +148,11 @@ class Trainer:
 
         N = inputs["N"].numpy()
         Z = inputs["Z"].numpy()
-        unscaled_preds = scaler.inverse_transform(N, Z, preds)
+        if scaler is None:
+            unscaled_preds = preds
+        else:
+            atom_count = get_atom_count(Z, N)
+            unscaled_preds = scaler.inverse_transform(atom_count, preds)
 
         mae = tf.reduce_mean(tf.abs(targets - unscaled_preds), axis=0)
         mean_mae = tf.reduce_mean(mae)

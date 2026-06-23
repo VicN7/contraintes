@@ -5,6 +5,8 @@
 import os
 import csv
 from custom.target_scaling import LREnergyScaler
+from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
+
 
 # Periodic-table mapping from element symbol to atomic number (Z).
 # Extend as needed for your dataset.
@@ -14,6 +16,8 @@ ELEMENT_TO_Z = {
     'S': 16, 'Cl':17
 }
 ELEMENT_LIST = [1, 2, 6, 7, 8, 11, 16, 17]
+
+Z_TO_COL = {element:i for i, element in enumerate(ELEMENT_LIST)}
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +71,18 @@ def parse_extxyz(filepath):
     )
 
 
+def get_atom_count(Z, N):
+        n_sample = len(N)
+        n_disctinct_atoms = len(Z_TO_COL)
+        # Get an array of the count of atom in each molecules
+        atom_count = np.zeros((n_sample, n_disctinct_atoms))
+        start = 0
+        for i, n in enumerate(N):
+            for z in Z[start:start+n]:
+                atom_count[i, Z_TO_COL[z]] += 1
+            start += n
+        return atom_count
+
 # ==========================================================================================================
 # Code from DimeNet
 
@@ -76,36 +92,18 @@ import scipy.sparse as sp
 
 index_keys = ["batch_seg", "idnb_i", "idnb_j", "id_expand_kj",
               "id_reduce_ji", "id3dnb_i", "id3dnb_j", "id3dnb_k"]
-
  
 class DataContainer:
     # =============================================
     # init modified to match our problem
-    def __init__(self, data_root, cutoff, train=True):
-        if train:
-            dataset_name = "train"
-        else:
-            dataset_name = "test"
+    def __init__(self, data_root, cutoff, train=True, scale_target=False, 
+                 seed=42, val_size=0.1):
 
-        ids_train, N_train, Z_train, R_train = DataContainer.parse_dataset(data_root, 'train')
-        energies_csv = os.path.join(data_root, 'energies/train.csv')
-        energy_by_id = {}  # mol_id (int) -> {col: float}
-        with open(energies_csv, newline='') as energy_file:
-            reader = csv.DictReader(energy_file)
-            for row in reader:
-                mol_id = int(row['id'])
-                energy_by_id[mol_id] = row["energy"]
-        
-            train_targets = np.array([energy_by_id[id] for id in ids_train], dtype=np.float32)
-        self.scaler = LREnergyScaler(ELEMENT_LIST)
-        self.scaler.fit(Z_train, N_train, train_targets)
-        
-        if train:
-            self.id = ids_train
-            self.Z = Z_train
-            self.N = N_train
-            self.R = R_train
-            # load training target
+        # Random state parameter, such that random operations are reproducible if wanted
+        self._random_state = np.random.RandomState(seed=seed)
+
+        if scale_target or train:
+            ids_train, N_train, Z_train, R_train = DataContainer.parse_dataset(data_root, 'train')
             energies_csv = os.path.join(data_root, 'energies/train.csv')
             energy_by_id = {}  # mol_id (int) -> {col: float}
             with open(energies_csv, newline='') as energy_file:
@@ -113,7 +111,36 @@ class DataContainer:
                 for row in reader:
                     mol_id = int(row['id'])
                     energy_by_id[mol_id] = row["energy"]
-        
+            
+                train_targets = np.array([energy_by_id[id] for id in ids_train], dtype=np.float32)
+
+        if scale_target:
+            whole_train_atom_count = get_atom_count(Z_train, N_train)
+            whole_train_presence = whole_train_atom_count > 0
+
+            # Split train / validation set using the presence of atoms
+            msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=val_size, random_state=self._random_state)
+            self.train_idx, self.val_idx = next(msss.split(np.zeros(len(N_train)), whole_train_presence))
+
+            train_only_atom_count = whole_train_atom_count[self.train_idx]
+            train_only_targets= train_targets[self.train_idx]
+            self.scaler = LREnergyScaler(True)
+            self.scaler.fit(train_only_atom_count, train_only_targets)
+
+        else:
+            if train:
+                from math import ceil
+                n_val = ceil(len(N_train) * val_size)
+                all_idx = np.arange(len(N_train))
+                all_idx = self._random_state.permutation(all_idx)
+                self.train_idx = all_idx[n_val:]
+                self.val_idx = all_idx[:n_val]
+
+        if train:
+            self.id = ids_train
+            self.Z = Z_train
+            self.N = N_train
+            self.R = R_train
             self.targets = train_targets
         else:
             self.id, self.N, self.Z, self.R = DataContainer.parse_dataset(data_root, "test")
@@ -124,15 +151,20 @@ class DataContainer:
         assert self.R is not None
 
         # Scale the targets
-        self.targets = self.scaler.transform(self.N, self.Z, self.targets)
-        # We scale back in trainer when we do inference.
+        if scale_target:
+            if train:
+                self.targets = self.scaler.transform(whole_train_atom_count, self.targets)
+            # We scale back in trainer when we do inference.
+            # For test, labels are fake so we don't care.
+        else:
+            self.scaler = None 
 
     @staticmethod
     def parse_dataset(data_root, dataset_name):
         ids_list, N_list, Z_list, R_list = [], [], [], []
 
         split_dir = os.path.join(os.path.join(data_root, 'atoms'), dataset_name)
-        for molecule_file in os.listdir(split_dir):
+        for molecule_file in sorted(os.listdir(split_dir)):
             if not molecule_file.endswith('.xyz'):
                 continue
 
